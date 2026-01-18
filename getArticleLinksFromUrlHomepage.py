@@ -133,6 +133,9 @@ def parseApNewsHomepage(lines):
     links = set()
     searchStrLink = str('<a class="Link" href="')
     
+    skipStrVideo = str("video/")
+    skipStrPhoto = str("photo-gallery/")
+    
     #loop through all of the lines in lines
     for i in range(0, len(lines)):
         currLine = lines[i]
@@ -143,10 +146,18 @@ def parseApNewsHomepage(lines):
             if(currLine[j:j+len(searchStrLink)] == searchStrLink):
                 firstIdx = j + len(searchStrLink) 
                 secondIdx = currLine.find('"><')
-                
+
                 #If the end of the href link is not present, do not add this text to the st
                 if(secondIdx != -1):
-                   links.add(currLine[firstIdx:secondIdx])
+                    possibleLink = currLine[firstIdx:secondIdx]
+                    
+                    #Remove the link if it is a video or photo gallery article
+                    if(possibleLink.find(skipStrVideo) > -1):
+                        continue
+                    elif(possibleLink.find(skipStrPhoto) > -1):
+                        continue
+                    else:
+                        links.add(currLine[firstIdx:secondIdx])
     return links
     
 def parseGoogleBlogHomepage(lines, url = "https://research.google"):
@@ -327,13 +338,15 @@ def parseAritraryHomepage(lines, url = "", skipAddingUrl = False, searchStrList 
                     links.add(url + currLine[j + firstIdx:j + secondIdx])
                 
     return links
-    
+
+#Debug helper function
 def linesToText(lines):
     with open('debugHtmlCopy.txt', 'a') as file:
         for line in lines:
             file.write(line + '\n')
     return 
 
+#To run the code in the terminal for testing
 if __name__ == "__main__":
     links = getArticleLinksFromUrlHomepage()
     print(len(links), links)

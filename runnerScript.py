@@ -22,6 +22,7 @@ from UrlObject import UrlObject
 from UrlEnum import UrlEnum
 from getWebpageText import getWebpageText
 from getArticleLinksFromUrlHomepage import getArticleLinksFromUrlHomepage
+from getWebpageTitle import getWebpageTitle
 
 #Function call to run the entire pipeline. This name will be replaced in the future. 
 def runnerScript():
@@ -40,7 +41,7 @@ def runnerScript():
     requestSession = requests.session()
     
     #Get a list of all article links on the url home page
-    links = getArticleLinksFromUrlHomepage(url = 'https://www.cnn.com/', requestSession = requestSession, headers = headers)
+    links = getArticleLinksFromUrlHomepage(url = 'https://apnews.com/', requestSession = requestSession, headers = headers)
     
     #Define variables to be used for summarization 
     sml_summarizer_model_id = "microsoft/bitnet-b1.58-2B-4T"
@@ -48,10 +49,11 @@ def runnerScript():
     bert_finetuned_model_id = "cssupport/bert-news-class"
                                     
     #Create variables to hold the article outputs
-    listOfArticleUrls = []
+    listOfArticleTitles = []
     listOfArticleShortSummarys = []
     listOfArticleLargeSummarys = []
     listOfArticleTopics = []
+    listOfArticleUrls = []
     
     #Get a device to run the models on 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -72,12 +74,16 @@ def runnerScript():
     bert_model = BertForSequenceClassification.from_pretrained(bert_finetuned_model_id).to(device)
     
     #Wait a little time before accessing the next article
-    time.sleep(5)
+    time.sleep(1)
         
-    for i in range(10):
+    for i in range(10):#len(links)):):
         ### Get the text from the article url ###
         url = links[i]
-        webpageText = getWebpageText(UrlObject(url, UrlEnum.CNN), requestSession = requestSession, headers = headers)
+        
+        articleTitle = getWebpageTitle(UrlObject(url, UrlEnum.AP_NEWS), requestSession = requestSession, headers = headers)
+        webpageText = getWebpageText(UrlObject(url, UrlEnum.AP_NEWS), requestSession = requestSession, headers = headers)
+        
+        print("Title of Article:", articleTitle)
 
         #############################
         ### Get Summary and Title ###
@@ -95,18 +101,18 @@ def runnerScript():
         chat_input = slm_tokenizer(prompt, return_tensors="pt").to(slm_model.device)
 
         # Generate response
-        chat_outputs = slm_model.generate(**chat_input, max_new_tokens=500)
+        chat_outputs = slm_model.generate(**chat_input, max_new_tokens=800)
         summaryOfText = slm_tokenizer.decode(chat_outputs[0][chat_input['input_ids'].shape[-1]:], skip_special_tokens=True) # Decode only the response part
 
         ##########################################
         ### Get the short one sentence summary ###
         ##########################################
 
-        userPrompt = "Summarize in 5 words: "
+        userPrompt = "Summarize in a single sentence: "
         # Apply the chat template
         messages = [
             {"role": "assistant", "content": context},
-            {"role": "user", "content": userPrompt + summaryOfText.replace('**', '').replace('\n', " ")}
+            {"role": "user", "content": userPrompt + webpageText}
         ]
         prompt = slm_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         chat_input = slm_tokenizer(prompt, return_tensors="pt").to(slm_model.device)
@@ -122,21 +128,19 @@ def runnerScript():
             
         print("One Sentence Summary:\n", oneSentenceSummary)
 
-        #Print the full summary
-        lastDotIdx = summaryOfText.rfind('.')
-        
-        #Remove anything generated after the last period.
-        if(lastDotIdx > 0):
-            summaryOfText = summaryOfText[0:lastDotIdx+1]
-        
+        #Print the full summary        
         print('Summary:\n', summaryOfText)
 
         ####################################
         ### Get the topic of the article ###
         ####################################
-
-        #Get the topic of the text
-        topicOfText = predictTopicOfArticle(summaryOfText, bert_model, bert_tokenizer, device = device)
+        
+        try:
+            #Get the topic of the text
+            topicOfText = predictTopicOfArticle(summaryOfText, bert_model, bert_tokenizer, device = device)
+        except Exception as e:
+            topicOfText = "Error when getting topic."
+            print(repr(e))
 
         print("Topic:", topicOfText)
 
@@ -144,19 +148,21 @@ def runnerScript():
         ### Print disclaimer ###
         ########################
 
-        print("I am a Small Language Model (SLM) generating a summary based on the first 8000 characters I see. Take what I say with a grain of salt. Thanks.")
+        print("I am a Small Language Model (SLM) generating a summary based on the first 10000 characters I see. Take what I say with a grain of salt. Thanks.")
         print("Link to original article:", url)
         
-        listOfArticleUrls.append(url)
+        listOfArticleTitles.append(articleTitle)
         listOfArticleShortSummarys.append(summaryToAllowableCsvText(oneSentenceSummary))
         listOfArticleLargeSummarys.append(summaryToAllowableCsvText(summaryOfText))
         listOfArticleTopics.append(topicOfText)
+        listOfArticleUrls.append(url)
         
         #Wait a little time before accessing the next article
-        time.sleep(5)
+        time.sleep(1)
     
     #Create a data frame and write to a csv
-    df = pd.DataFrame({"One_Sentence_Summary": listOfArticleShortSummarys,
+    df = pd.DataFrame({"Article Title":        listOfArticleTitles,
+                       "One_Sentence_Summary": listOfArticleShortSummarys,
                        "Full_Summary":         listOfArticleLargeSummarys,
                        "Topic":                listOfArticleTopics,
                        "URL":                  listOfArticleUrls})
@@ -164,7 +170,7 @@ def runnerScript():
     return df
 
 ### Helper functions 
-def predictTopicOfArticle(text, model, tokenizer, maxLengthOfText = 8000, device = 'cpu'):
+def predictTopicOfArticle(text, model, tokenizer, maxLengthOfText = 5000, device = 'cpu'):
     id_to_class = {0: 'Arts', 1: 'Arts & Culture', 
                    2: 'Black Voices', 3: 'Business', 
                    4: 'College', 5: 'Comedy', 
@@ -187,13 +193,15 @@ def predictTopicOfArticle(text, model, tokenizer, maxLengthOfText = 8000, device
                    38: 'Women', 39: 'World News', 
                    40: 'Worldpost'}
     
+    #Truncate the text if it is too large
     if(len(text)>maxLengthOfText):
-        text = text.replace('**', '').replace('\n', " ")[0:maxLengthOfText].rfind('.')
-    
+        text = text[0:maxLengthOfText]
+
     # Tokenize the input text
     inputs = tokenizer(text, return_tensors='pt').to(device)
     with torch.no_grad():
         logits = model(inputs['input_ids'], inputs['attention_mask'])[0]
+        
     # Get the predicted class index
     pred_class_idx = torch.argmax(logits, dim=1).item()
     return id_to_class[pred_class_idx]
