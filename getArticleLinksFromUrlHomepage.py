@@ -2,25 +2,38 @@ import requests
 from bs4 import BeautifulSoup
 import urllib.request
 
-def WebsiteParser():
-    #Headers which tell bs4 what type of internet browser to use
-    headers = { 
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:85.0) Gecko/20100101 Firefox/85.0'
-    }
+def getArticleLinksFromUrlHomepage(url = 'https://www.cnn.com/', requestSession = None, headers = None):
+    if(headers is None):
+        headers = {
+        'user-agent': 'My app',
+        'Accept-Encoding': 'gzip, deflate, sdch',
+        'Accept-Language': 'en-US,en;q=0.8',
+        'Upgrade-Insecure-Requests': '1',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Cache-Control': 'max-age=0',
+        'Connection': 'keep-alive',}
+        
+    if(requestSession is None):        
+        #Request object
+        requestSession = requests.session()
     
-    #URL to access
-    url = 'https://www.staradvertiser.com/tag/world-news/'
+    res = requestSession.get(url, headers = headers)
     
-    #Setup to download the text from the webpage
-    r = requests.get(url, timeout = 10, headers=headers)
-    soup = BeautifulSoup(r.text, features="html.parser")
+    soup = BeautifulSoup(res.text, features="html.parser")
     
     #Get all of the lines of text from the webpage
     lines = str(soup).split('\n')
         
     #TODO: Sort these in the order of the ENUMs in the URL objects
     if(url.find('www.cnn.com') > 0):
-        links = parseCnnHomepage(lines)
+        links = parseAritraryHomepage(lines, 
+                    url = 'https://www.cnn.com/', 
+                    skipAddingUrl = False, 
+                    searchStrList = [str('data-link-type="article"')],
+                    firstSubStrToFind = 'href="/',
+                    secondSubStrToFind = '">',
+                    skipStrList = ["cnn-underscored", "interactive/", "videos/"]) 
     elif(url.find('guardian.com') > 0):
         links = parseGuardianHomepage(lines)
     elif(url.find('apnews.com') > 0):
@@ -65,8 +78,8 @@ def WebsiteParser():
 
     #Convert the set into a list for readability when accessing
     links = [link for link in links] 
-    print(links)
-    return
+
+    return links
 
 ### Website specific functions to retrieve the individual article links 
 def parseCnnHomepage(lines, url = 'https://www.cnn.com/'):
@@ -274,6 +287,7 @@ def parseAritraryHomepage(lines, url = "", skipAddingUrl = False, searchStrList 
         for j in range(len(currLine) - maxSearchStrLen):
             #Create a flag to look for a possible link
             hasPossibleLink = False
+            skipPossibleLink = False
             
             #If any of the search strings are included in the current line at the current index continue
             for k in range(len(searchStrList)):
@@ -306,12 +320,11 @@ def parseAritraryHomepage(lines, url = "", skipAddingUrl = False, searchStrList 
                 #This if for edge cases that need to be skipped
                 for k in range(len(skipStrList)):
                     skipStr = skipStrList[k]
-                    if(len(skipStr) > 0 and 
-                        possibleLink.find(skipStr) > -1):
-                       possibleLink = ""
-                       continue
+                    if(len(skipStr) > 0 and possibleLink.find(skipStr) > -1):
+                       skipPossibleLink = True
             
-                links.add(url + currLine[j + firstIdx:j + secondIdx])
+                if(skipPossibleLink == False):
+                    links.add(url + currLine[j + firstIdx:j + secondIdx])
                 
     return links
     
@@ -321,13 +334,6 @@ def linesToText(lines):
             file.write(line + '\n')
     return 
 
-#https://stackoverflow.com/questions/1883980/find-the-nth-occurrence-of-substring-in-a-string
-def find_nth(haystack: str, needle: str, n: int) -> int:
-    start = haystack.find(needle)
-    while start >= 0 and n > 1:
-        start = haystack.find(needle, start+len(needle))
-        n -= 1
-    return start
-
 if __name__ == "__main__":
-    WebsiteParser()
+    links = getArticleLinksFromUrlHomepage()
+    print(len(links), links)
