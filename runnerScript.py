@@ -12,6 +12,7 @@ import numpy as np
 import csv
 import pandas as pd
 import time
+import datetime
 
 #For data scraping
 from bs4 import BeautifulSoup
@@ -52,8 +53,12 @@ def runnerScript():
     listOfArticleTitles = []
     listOfArticleShortSummarys = []
     listOfArticleLargeSummarys = []
+    listOfAritcleBulletSummarys = []
+    listOfArticleKeywords = []
     listOfArticleTopics = []
     listOfArticleUrls = []
+    listOfTimesSummaryWasCreated = []
+    listOfArticleMediaBias = []
     
     #Get a device to run the models on 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -76,7 +81,7 @@ def runnerScript():
     #Wait a little time before accessing the next article
     time.sleep(1)
         
-    for i in range(10):#len(links)):):
+    for i in range(len(links)):
         ### Get the text from the article url ###
         url = links[i]
         
@@ -130,6 +135,44 @@ def runnerScript():
 
         #Print the full summary        
         print('Summary:\n', summaryOfText)
+        
+        ####################################################
+        ### Get 3 bullet points to summarize the article ###
+        ####################################################
+        
+        userPrompt = "Summarize with three bullets: "
+        # Apply the chat template
+        messages = [
+            {"role": "assistant", "content": context},
+            {"role": "user", "content": userPrompt + summaryOfText}
+        ]
+        prompt = slm_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        chat_input = slm_tokenizer(prompt, return_tensors="pt").to(slm_model.device)
+
+        # Generate response
+        chat_outputs = slm_model.generate(**chat_input, max_new_tokens=300)
+        bulletPointSummary = slm_tokenizer.decode(chat_outputs[0][chat_input['input_ids'].shape[-1]:], skip_special_tokens=True)
+        
+        print("Bullet Point Summary Of Article:\n", bulletPointSummary)
+        
+        ####################################################
+        ### Get keywords of the article ###
+        ####################################################
+        
+        userPrompt = "Summarize with three comma-separated words: "
+        # Apply the chat template
+        messages = [
+            {"role": "assistant", "content": context},
+            {"role": "user", "content": userPrompt + summaryOfText}
+        ]
+        prompt = slm_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        chat_input = slm_tokenizer(prompt, return_tensors="pt").to(slm_model.device)
+
+        # Generate response
+        chat_outputs = slm_model.generate(**chat_input, max_new_tokens=15)
+        keywordsOfArticle = slm_tokenizer.decode(chat_outputs[0][chat_input['input_ids'].shape[-1]:], skip_special_tokens=True)
+        
+        print("Keywords:\n", keywordsOfArticle)
 
         ####################################
         ### Get the topic of the article ###
@@ -154,18 +197,25 @@ def runnerScript():
         listOfArticleTitles.append(articleTitle)
         listOfArticleShortSummarys.append(summaryToAllowableCsvText(oneSentenceSummary))
         listOfArticleLargeSummarys.append(summaryToAllowableCsvText(summaryOfText))
+        listOfAritcleBulletSummarys.append(summaryToAllowableCsvText(bulletPointSummary))
+        listOfArticleKeywords.append(summaryToAllowableCsvText(keywordsOfArticle))
         listOfArticleTopics.append(topicOfText)
         listOfArticleUrls.append(url)
+        listOfTimesSummaryWasCreated.append(str(datetime.datetime.now()))
+        listOfArticleMediaBias.append("TODO")
         
         #Wait a little time before accessing the next article
         time.sleep(1)
     
     #Create a data frame and write to a csv
-    df = pd.DataFrame({"Article Title":        listOfArticleTitles,
-                       "One_Sentence_Summary": listOfArticleShortSummarys,
-                       "Full_Summary":         listOfArticleLargeSummarys,
-                       "Topic":                listOfArticleTopics,
-                       "URL":                  listOfArticleUrls})
+    df = pd.DataFrame({"Article Title":         listOfArticleTitles,
+                       "One_Sentence_Summary":  listOfArticleShortSummarys,
+                       "Full_Summary":          listOfArticleLargeSummarys,
+                       "Bulleted_Summary":      listOfAritcleBulletSummarys,
+                       "Topic":                 listOfArticleTopics,
+                       "URL":                   listOfArticleUrls,
+                       "Summary_Creation_Time": listOfTimesSummaryWasCreated,
+                       "Bias": listOfArticleMediaBias})
     df.to_csv('output.csv', sep = ',') 
     return df
 
